@@ -1,0 +1,11 @@
+# 이 폴더에는 자소서·이력서·등본 등 개인정보가 들어 있다.
+# 모든 것을 제외하고 뷰어 코드와 문서만 허용한다 (화이트리스트).
+/*
+!/.gitignore
+!/.gitattributes
+!/_viewer/
+!/보기.bat
+!/README.txt
+!/README.md
+
+__pycache__/
