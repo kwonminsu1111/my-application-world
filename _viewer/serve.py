@@ -42,6 +42,8 @@ HALF_RE = re.compile(r"^\d{2}[상하]$")
 APP_RE = re.compile(r"^(?P<company>.+?)_(?P<half>\d{2}[상하])(?:_(?P<suffix>.+))?$")
 IMAGE_EXT = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 INFO_NAME = "정보.txt"
+REVIEW_DIR = "필기복기"
+REVIEW_RE = re.compile(r"^(?P<app>.+)_복기$")
 
 
 def read_text(path, warnings):
@@ -107,7 +109,7 @@ def scan():
     apps = {}
     for stage in sorted(os.listdir(ROOT)):
         stage_dir = os.path.join(ROOT, stage)
-        if not os.path.isdir(stage_dir) or stage.startswith(("_", ".")):
+        if not os.path.isdir(stage_dir) or stage.startswith(("_", ".")) or stage == REVIEW_DIR:
             continue
         if stage not in STAGE_FOLDERS:
             warnings.append(f"{stage}/: 알 수 없는 단계 폴더입니다. (README.txt의 단계 폴더 목록 참고)")
@@ -230,8 +232,29 @@ def scan():
             "folders": [{"stage": s, "path": rel(d)} for s, d in copies],
             "files": files,
         })
+    attach_reviews(result)
     result.sort(key=lambda a: (a["half"], a["company"]), reverse=False)
     return {"root": ROOT, "apps": result, "warnings": warnings}
+
+
+def attach_reviews(apps):
+    """필기복기/{지원 폴더명}_복기.* 를 필기를 본 지원에 붙인다. 규칙에 맞지 않거나
+    응시하지 않은 기업의 복기본(남에게 받은 것 등)은 조용히 무시한다."""
+    by_id = {a["id"]: a for a in apps}
+    for a in apps:
+        a["reviews"] = []
+    review_dir = os.path.join(ROOT, REVIEW_DIR)
+    if not os.path.isdir(review_dir):
+        return
+    for fn in sorted(os.listdir(review_dir)):
+        full = os.path.join(review_dir, fn)
+        stem, ext = os.path.splitext(fn)
+        m = REVIEW_RE.match(stem)
+        app = by_id.get(m["app"]) if m and os.path.isfile(full) else None
+        written = app and any(s["name"] == "필기" and s["state"] in ("pass", "fail") for s in app["steps"])
+        if written:
+            ext = ext.lower()
+            app["reviews"].append({"name": fn, "path": rel(full), "ext": ext, "size": os.path.getsize(full), "image": ext in IMAGE_EXT})
 
 
 def next_move(final_step, final_res, step_states):
@@ -340,6 +363,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-store")
             self.end_headers()
             self.wfile.write(body)
+        elif url.path == "/api/text":
+            full = safe_path(parse_qs(url.query).get("p", [""])[0])
+            if not full or not os.path.isfile(full):
+                return self.send_error(404)
+            self.send_json({"text": read_text(full, [])})
         elif url.path == "/api/data":
             self.send_json(scan())
         elif url.path == "/file":
